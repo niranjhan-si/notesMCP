@@ -1,0 +1,20 @@
+{
+  "name": "notesmcp",
+  "version": "1.0.0",
+  "description": "MCP server that lets Claude read, search, create, update, and delete Apple Notes via JXA.",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "notesmcp": "src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node test/test-notes.js"
+  },
+  "keywords": ["mcp", "apple-notes", "claude"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  }
+}
