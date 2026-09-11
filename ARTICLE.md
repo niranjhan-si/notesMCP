@@ -47,6 +47,27 @@ actually has. Fixed by asserting the note's folder changed to "Recently
 Deleted" instead. Small bug, good reminder: write the test against the real
 system, not your mental model of it.
 
+## Two JXA quirks that cost me an hour each
+
+Neither is documented anywhere I could find. Both only showed up once I
+started handling errors properly instead of just the happy path.
+
+**`osascript`'s default output mangles JSON.** Ask it to print a string that
+looks like a JSON object, and by default it "helpfully" strips the quotes,
+turning `{"id":"abc"}` into `id:abc` — no longer valid JSON. The fix is the
+`-s s` flag, which forces proper quoting. But that then double-encodes the
+value (it quotes the already-stringified JSON), so parsing it back takes two
+`JSON.parse` calls, not one.
+
+**A `try/catch` can't reach across two function calls.** Throw from inside a
+function that's itself called by another function that's wrapped in a
+`try/catch`, and osascript doesn't catch it — it surfaces as an uncaught
+execution error, as if there were no catch block at all. Throw from one call
+deep and it works fine. I found this by writing progressively smaller repro
+scripts until the exact boundary showed up, then restructured the whole
+server so every risky call sits directly inside the try block, never behind
+a wrapper function.
+
 ## No build step, on purpose
 
 The whole server is two files — `notes.js` (the JXA calls) and `index.js`

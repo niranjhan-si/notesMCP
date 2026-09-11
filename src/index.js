@@ -2,11 +2,23 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import * as notes from "./notes.js";
+import { reportUrl } from "./errors.js";
 
 const server = new McpServer({ name: "notesmcp", version: "1.0.0" });
 
 const text = (value) => ({ content: [{ type: "text", text: JSON.stringify(value, null, 2) }] });
-const errorText = (err) => ({ content: [{ type: "text", text: err.message }], isError: true });
+
+// `reportable` (set by errors.js) distinguishes "you need to do something"
+// (permission, not found, locked) from "this tool is broken" — only the
+// latter gets an opt-in GitHub issue link. Nothing is ever sent automatically.
+function errorText(err) {
+  let message = err.message;
+  // Unclassified errors (a bug in our own code, not covered by errors.js) default to reportable.
+  if (err.reportable !== false) {
+    message += `\n\nThis looks like a bug in notesmcp, not something you can fix. If you'd like to report it, open: ${reportUrl(err)}`;
+  }
+  return { content: [{ type: "text", text: message }], isError: true };
+}
 
 function tool(name, description, schema, handler) {
   server.registerTool(

@@ -52,13 +52,29 @@ npm test
 Creates a real throwaway note, runs it through create/get/search/update/list/delete,
 then leaves it in "Recently Deleted" (Notes.app's normal soft-delete).
 
+## Error handling
+
+Every failure returns a specific message instead of a generic crash:
+permission not granted, Notes.app not reachable, note/folder not found,
+a password-locked note, or a timeout on a very large library.
+
+Errors fall into two kinds:
+- **User-fixable** (permission, not found, locked note) — the message tells
+  you what to do; nothing more happens.
+- **Everything else** (an actual bug in this tool) — the message includes a
+  link that opens a pre-filled GitHub issue. Nothing is ever sent
+  automatically; you review and submit it yourself, or not.
+
 ## Notes on the design
 
-- Plain Node.js, no build step — the whole server is two files.
+- Plain Node.js, no build step — the whole server is three files
+  (`notes.js`, `errors.js`, `index.js`).
 - Notes are matched by `id` (preferred) or exact title. Duplicate titles
   resolve to the first match; that's a known limitation, not a bug.
 - `delete_note` mirrors Notes.app's own behavior: it moves the note to
   "Recently Deleted" rather than purging it immediately.
+- osascript's default output mangles JSON-looking strings (see build log),
+  so every JXA call runs with `-s s` and gets parsed twice.
 
 See [docs/BUILD_LOG.md](docs/BUILD_LOG.md) for how this was built, and
 [ARTICLE.md](ARTICLE.md) for the writeup.

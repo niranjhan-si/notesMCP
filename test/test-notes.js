@@ -35,4 +35,21 @@ notes.deleteNote(created.id);
 // Notes.app soft-deletes into "Recently Deleted" rather than purging immediately.
 assert.equal(notes.getNote(created.id).folder, "Recently Deleted");
 
+console.log("error handling: note not found");
+try {
+  notes.getNote("no-such-note-xyz");
+  assert.fail("expected NOTE_NOT_FOUND");
+} catch (e) {
+  assert.equal(e.code, "NOTE_NOT_FOUND");
+  assert.equal(e.reportable, false); // user-fixable, not a bug report
+}
+
+console.log("error handling: folder not found");
+try {
+  notes.listNotes("no-such-folder-xyz");
+  assert.fail("expected FOLDER_NOT_FOUND");
+} catch (e) {
+  assert.equal(e.code, "FOLDER_NOT_FOUND");
+}
+
 console.log("PASS");
