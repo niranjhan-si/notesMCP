@@ -77,4 +77,4 @@ Errors fall into two kinds:
   so every JXA call runs with `-s s` and gets parsed twice.
 
 See [docs/BUILD_LOG.md](docs/BUILD_LOG.md) for how this was built, and
-[ARTICLE.md](ARTICLE.md) for the writeup.
+[substack-draft.md](substack-draft.md) for the writeup.
