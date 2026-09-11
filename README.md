@@ -76,5 +76,4 @@ Errors fall into two kinds:
 - osascript's default output mangles JSON-looking strings (see build log),
   so every JXA call runs with `-s s` and gets parsed twice.
 
-See [docs/BUILD_LOG.md](docs/BUILD_LOG.md) for how this was built, and
-[substack-draft.md](substack-draft.md) for the writeup.
+See [docs/BUILD_LOG.md](docs/BUILD_LOG.md) for how this was built.
