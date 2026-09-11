@@ -2,40 +2,42 @@
 
 I take almost every note — meeting scribbles, half-formed ideas, the odd grocery list — in Apple Notes. I do almost all my actual thinking out loud with Claude Code. For a long time those were two separate rooms with no door between them: if I wanted Claude to see something I'd written, I had to go copy-paste it over by hand.
 
-So I built the door: **notesMCP**, a small server that lets Claude read, search, create, update, and delete my Apple Notes directly.
+So I had Claude Code build the door: **notesMCP**, a small server that lets Claude read, search, create, update, and delete my Apple Notes directly. I didn't write a line of it. What I owned was the problem, the scope, and every call about what it should and shouldn't do — the same job I'd do steering any engineer.
 
 ## The shape of the bridge
 
-MCP (Model Context Protocol) is the standard Claude Code uses to pick up new tools, and the part that made this an easy yes is that an MCP server is just a local process — Claude launches it, talks to it over stdin/stdout, and shuts it down. No hosting, no API keys, no auth flow. Which mattered a lot here, because Apple Notes has no public API of any kind.
+First decision: what's even the right way to connect these two things? I wasn't going to stand up a backend for a personal tool, so MCP (Model Context Protocol) was the obvious answer — it's the standard Claude Code already uses to pick up new tools, and it runs as a local process on my machine. No server to host, no API keys, no auth flow to build. That constraint alone ruled out a dozen fancier architectures before we wrote anything.
 
-I scoped it hard before writing a line: seven tools, the full CRUD surface a notes app needs and nothing more — `list_folders`, `list_notes`, `get_note`, `search_notes`, `create_note`, `update_note`, `delete_note`. No AI summarization baked in, no sync engine, no TypeScript build step. The whole server is a couple hundred lines across two files. When the entire project is that small, a build pipeline is pure overhead.
+Second decision, and the one I was firmest about: scope. It would've been easy to let this sprawl into AI summarization, a sync engine, a nice UI. I cut all of that before we started. Seven tools, the full CRUD surface a notes app actually needs and nothing more — list folders, list notes, get a note, search, create, update, delete. No build pipeline. That's a PM call, not an engineering one: the smaller the surface, the less there is to maintain, document, and eventually explain to a reader who's never seen the code.
 
-## The only way in
+## The constraint nobody could scope around
 
-Since there's no API, the only way to touch Notes.app programmatically is Apple's decades-old automation layer — classic AppleScript, or its JavaScript cousin, JXA. I went with JXA, because it lets me build a plain JS object and hand it back to Node as JSON instead of parsing AppleScript's string output by hand. In theory, clean.
+Here's the wrinkle we didn't choose: Apple Notes has no public API. None. The only way in is Apple's decades-old automation layer — AppleScript, or its JavaScript cousin, JXA. That's not a design decision, that's the ceiling every Apple Notes tool on GitHub runs into, ours included. Worth knowing before you commit to a project like this: sometimes the platform decides your architecture for you, and the only real choice left is which flavor of workaround to use.
 
 ## A bug that wasn't a bug
 
-The first real snag came from my own test, not the code. I wrote a self-check that creates a note, runs it through the full CRUD cycle, deletes it, and then asserts that reading it back throws — deleted things shouldn't exist anymore. The assertion failed. `get_note` found it fine.
+The test we wrote to verify the build caught something interesting almost immediately: delete a note, then try to read it back, and it should be gone. It wasn't. Notes.app doesn't actually delete a note when you delete it — same as Mail's trash, it moves the note to "Recently Deleted" for thirty days.
 
-Turned out Notes.app doesn't actually delete a note when you delete it — same as Mail, it moves the note into "Recently Deleted" for thirty days. My test was asserting behavior I'd assumed, not behavior the app actually has. I fixed it to check the note's folder changed instead of expecting it to vanish. Small bug, useful reminder: a test is only as good as its model of the real system, and mine was wrong.
+That's not a code bug, it's a wrong assumption baked into the spec. I'd assumed "delete" meant "gone." It doesn't, and once I knew that, the fix was one line — check the note landed in the right folder instead of expecting it to vanish. Small thing, but it's the kind of gap that only surfaces once you actually run the thing against the real system instead of reasoning about it on paper.
 
-## Two bugs nobody documents
+## The part where the platform fought back
 
-The harder problems showed up later, once I went back to add proper error handling — specific messages for permission denial, missing notes, locked notes, timeouts — instead of one generic crash.
+Once the basics worked, I asked for something any PM would ask for next: don't just crash, tell me *why* it failed — permission denied, note not found, note locked, timed out. Turning a stack trace into a message a normal person could act on.
 
-First, I wrapped the risky part of each script in a `try/catch` and had the catch block return a structured error as JSON. It didn't work. Failures that should've been caught cleanly came out instead as raw, uncaught execution errors from osascript itself, with a mangled, doubled message. I started cutting the script down to the smallest possible repro — a bare function that throws, wrapped in a try/catch — and found the actual boundary: an exception thrown from inside a function that's itself called by another function wrapped in a try/catch does not get caught. Throw from one call deep, it works. Throw from two, osascript just gives up and treats it as an uncaught crash. Nothing in Apple's docs mentions this. I only found it by shrinking the failing case until the exact line that broke it was obvious, then restructuring the whole server so every risky call sits directly inside its try block, never behind a wrapper function.
+That's where it got slow. Getting failures to report cleanly took two separate rounds of "it should work, it doesn't, why" before Claude tracked both down to undocumented quirks in Apple's automation layer itself — not bugs in our code, bugs in the 20-year-old bridge we were forced to build on top of. One was an error-handling boundary that silently swallowed exceptions under specific conditions. The other was the tool's own output quietly corrupting anything that looked like structured data before it ever reached us. Neither is documented anywhere. Both took deliberately shrinking the failing case down to the smallest possible repro to actually isolate.
 
-Second, once errors were catchable, the JSON coming back out was gibberish — `id:abc, title:hello` instead of `{"id":"abc","title":"hello"}`. `osascript`'s default output "prettifies" any string that looks like a JSON object, silently stripping the quotes that make it valid. I caught this by piping the raw output through `od -c` to see the actual bytes instead of trusting what my terminal displayed. The fix is a `-s s` flag that forces proper quoting — except that then double-encodes the string, so parsing it back takes two `JSON.parse` calls instead of one.
-
-Neither of these is a hard bug. Both were invisible until I went looking, byte by byte, for why a script that looked correct kept behaving like it wasn't.
+I didn't do that debugging — Claude did. What I did was insist we not ship "error handling" that was really just a slightly nicer crash, and push until the messages were actually specific enough to act on.
 
 ## Deciding what not to build
 
-The last iteration wasn't code at all — it was scope. Once error messages existed, the obvious next question was: should the tool report failures back to me automatically? Real telemetry means hosting a collector, writing a privacy policy, and maintaining a service indefinitely — a standing commitment that's disproportionate to a single-developer local tool. Instead, a failure that isn't the user's fault to fix now includes a link that opens a pre-filled GitHub issue. Nothing is ever sent without someone deciding, in the moment, to click submit. It gets most of the value of "the owner finds out fast" without turning a weekend project into infrastructure I'd have to babysit.
+The last iteration wasn't code at all — it was a product conversation. Once error messages existed, the obvious next ask was: should the tool report failures back to me automatically? I pushed on this one myself. Real telemetry means standing up a collector, writing a privacy policy, and maintaining a service indefinitely — a standing commitment completely out of proportion to a single-developer local tool. So we scoped it down: a failure that isn't the user's fault to fix now includes a link that opens a pre-filled GitHub issue. Nothing sends automatically. Someone has to look at it and choose to click submit.
+
+That's the tradeoff I'd make on a real product roadmap too — most of the benefit, none of the standing cost, and no infrastructure I'd have to babysit for a tool three people use.
 
 ## The takeaway
 
-Every real problem in this build showed up at the seam between "what I assumed" and "what the system actually does" — a soft delete I didn't expect, an exception boundary Apple never documented, an output format that lies about being JSON. None of it was visible from the spec. All of it only showed up by running the thing, watching it fail, and shrinking the failure until the cause was obvious.
+Nothing that actually went wrong here was visible from the spec. A soft delete I didn't expect. An error-handling boundary Apple never documented. An output format that lies about being JSON. All of it only showed up by building the thing, running it against reality, and being willing to say "that's not right yet" instead of shipping the first version that technically worked.
 
-It's public if you want to see the code or run it yourself: [notesMCP](https://github.com/niranjhan-si/notesMCP).
+That's the job, whether you're writing the code or not: know what "done" actually means, and don't accept less than that because the code compiles.
+
+It's public if you want to see it: [notesMCP](https://github.com/niranjhan-si/notesMCP).
